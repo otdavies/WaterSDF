@@ -1,0 +1,84 @@
+#pragma kernel SEEDJF
+#pragma kernel RUNJF
+#pragma kernel NORMALIZEJF
+#pragma kernel COPYTEX
+
+// JUMP FILL
+RWTexture2D<float> example;
+RWTexture2D<int3> current;
+RWTexture2D<int3> next;
+RWTexture2D<float> result;
+uint stepLength;
+uint resolution;
+
+// Setup the initial lookup table for the jump fill
+[numthreads(8, 8, 1)]
+void SEEDJF(uint3 id : SV_DispatchThreadID)
+{
+    if (example[id.xy] > 0.1) 
+    {
+        current[id.xy] = int3(id.xy, 0);
+        next[id.xy] = int3(id.xy, 0);
+    }
+    else 
+    {
+        current[id.xy] = int3(0, 0, -1);
+        next[id.xy] = int3(0, 0, -1);
+    }
+}
+
+float sqrDist(int2 a, int2 b)
+{
+    float abx = a.x - b.x;
+    float aby = a.y - b.y;
+    return abx * abx + aby * aby;
+}
+
+void propagate(int3 parent, int2 offset)
+{
+    int2 root = parent.xy;
+    int newDist = sqrDist(root, offset);
+    if (newDist == 0) return; // Offset cell is the seed
+
+    int lastDist = current[offset].z;
+    if (lastDist < 0 || lastDist > newDist) next[offset] = int3(root, newDist);
+}
+
+bool safe(uint2 origin, int x, int y, out int2 offset) 
+{
+    int r = (int)resolution;
+    int ox = origin.x + x;
+    int oy = origin.y + y;
+    offset = int2(ox, oy);
+    return ox >= 0 && ox < r && oy >= 0 && oy < r;
+}
+
+[numthreads(8, 8, 1)]
+void RUNJF(uint3 id : SV_DispatchThreadID)
+{
+    int3 center = current[id.xy];
+    if (center.z < 0) return; // Center cell is an empty cell
+
+    int s = (int)stepLength;
+    int2 offset;
+    if (safe(id.xy, 0, s, offset)) propagate(center, offset);
+    if (safe(id.xy, s, s, offset)) propagate(center, offset);
+    if (safe(id.xy, s, 0, offset)) propagate(center, offset);
+    if (safe(id.xy, s, -s, offset)) propagate(center, offset);
+    if (safe(id.xy, 0, -s, offset)) propagate(center, offset);
+    if (safe(id.xy, -s, -s, offset)) propagate(center, offset);
+    if (safe(id.xy, -s, 0, offset)) propagate(center, offset);
+    if (safe(id.xy, -s, s, offset)) propagate(center, offset);
+}
+
+[numthreads(8, 8, 1)]
+void NORMALIZEJF(uint3 id : SV_DispatchThreadID)
+{
+    result[id.xy] = current[id.xy].z / (resolution * 0.5);
+}
+
+[numthreads(16, 16, 1)]
+void COPYTEX(uint3 id : SV_DispatchThreadID)
+{
+    current[id.xy] = next[id.xy];
+}

@@ -1,0 +1,40 @@
+#pragma kernel CSMAIN
+#pragma kernel INVERT
+#pragma kernel CONVERT
+
+
+// NAIVE
+RWTexture2D<float> res;
+int2 passOffset;
+int iterationCount;
+
+[numthreads(8, 8, 1)]
+void CSMAIN(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height;
+    res.GetDimensions(width, height);
+
+    float adjacentDstA = res[id.xy + passOffset];
+    float adjacentDstB = res[id.xy - passOffset];
+    float sqrDst = min(adjacentDstA, adjacentDstB) + iterationCount * 2 + 1;
+
+    // Remove edges
+    if (id.x == 0 || id.y == 0 || id.x == width - 1 || id.y == height - 1) sqrDst = 100000.0;
+
+    if (sqrDst < res[id.xy]) {
+        res[id.xy] = sqrDst;
+    }
+}
+
+[numthreads(8, 8, 1)]
+void INVERT(uint3 id : SV_DispatchThreadID)
+{
+    if (res[id.xy] < 0.1) res[id.xy] = 10000000.0;
+    else res[id.xy] = 0;
+}
+
+[numthreads(8, 8, 1)]
+void CONVERT(uint3 id : SV_DispatchThreadID)
+{
+    res[id.xy] /= 100000.0;
+}
